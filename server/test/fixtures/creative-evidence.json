@@ -1,0 +1,8 @@
+{
+  "provenance": "Sanitized reconstruction of saved finding layouts; NOT captured production creative responses. No user prose, identifiers, media, or transcripts.",
+  "layouts": [
+    ["opening_hook", "visual_content"],
+    ["opening_hook", "visual_content", "narration", "on_screen_text", "pacing", "product", "call_to_action", "engagement"]
+  ],
+  "reconstructedFailure": { "criterion": "pacing", "rating": 2, "findingIndexes": [1], "expectedField": "criteria[2].findingIndexes" }
+}

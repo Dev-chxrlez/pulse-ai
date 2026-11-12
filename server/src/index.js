@@ -1,0 +1,14 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createApp } from './app.js';
+import { acquireDataLock } from './data-lock.js';
+const port = Number(process.env.PORT || 3001);
+const host = process.env.HOST || '127.0.0.1';
+const dataDir = path.resolve(process.env.DATA_DIR || './data');
+const release = acquireDataLock(dataDir);
+process.once('exit',release);
+for(const signal of ['SIGINT','SIGTERM']) process.once(signal,()=>process.exit(0));
+const clientDir = process.env.SERVE_CLIENT === 'true' ? fileURLToPath(new URL('../../client/dist/', import.meta.url)) : null;
+const app = await createApp({dataDir,origin:process.env.FRONTEND_ORIGIN || 'http://localhost:5173',clientDir});
+const server = app.listen(port,host,()=>console.log(`PULSE ${clientDir ? 'demo' : 'API'} listening on http://${host}:${port}`));
+server.on('error',error=>{console.error(`Could not start PULSE (${error.code || error.name}). Check the port and host settings.`);process.exitCode=1;});
