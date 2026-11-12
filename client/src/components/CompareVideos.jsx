@@ -1,0 +1,39 @@
+import { useEffect, useState } from 'react';
+import { ArrowRight, Check, GitCompareArrows } from 'lucide-react';
+import { timeLabel } from './AnalysisReport';
+import { get } from '../api';
+import { CreativeAction, FindingSources, ScoreMethod, outdatedReview } from './CreativeReview';
+
+export function ComparisonResults({ comparison, onOpen }) {
+  return <><div className="compare-scores">{comparison.videos.map((video,index)=>{const item=comparison.scores.find(score=>score.id===video.id);return <article key={video.id} className="panel compare-score-card"><span className="eyebrow">CUT {index+1}</span><h3>{video.originalName}</h3><strong>{item?.score??'—'}<small>{item?.score===null?'':'/100'}</small></strong><span>{item?.score===null?'Not enough shared evidence':'Score on shared criteria'}</span><button className="text-button" onClick={()=>onOpen(video)}>Open full report<ArrowRight size={13}/></button></article>;})}</div>
+      <section className="comparison-note"><p><b>{comparison.commonCriteria.length} of {comparison.totalCriteria} criteria</b> were assessed in every cut ({comparison.coverage}% of rubric weight); scores use only those. The highlighted cell is the highest rating in each row. Creative ratings are not a prediction of real-world performance.</p></section><div className="comparison-scroll"><table className="comparison-table"><caption>Creative comparison based on saved analysis reports</caption><thead><tr><th scope="col">Creative review</th>{comparison.videos.map(video=><th key={video.id} scope="col"><span className="eyebrow">CUT {comparison.videos.indexOf(video)+1}</span><h3>{video.originalName}</h3><video controls preload="metadata" src={video.fileUrl} aria-label={`Preview ${video.originalName}`}/><button className="text-button" onClick={()=>onOpen(video)}>Open full report<ArrowRight size={13}/></button></th>)}</tr></thead><tbody><tr className="comparison-total"><th scope="row">Score on shared criteria<small>Minimum 3 criteria and 60% weight</small></th>{comparison.scores.map(item=><td key={item.id} className={item.score!==null&&item.score===Math.max(...comparison.scores.map(score=>score.score??-1))&&comparison.scores.filter(score=>score.score===item.score).length<comparison.scores.length?'best':''}><strong>{item.score??'—'}</strong><span>{item.score===null?'Insufficient shared evidence':' / 100'}</span></td>)}</tr>{comparison.rows.map(row=>{const top=Math.max(...row.items.map(item=>item.rating??-1));const distinct=row.items.filter(item=>item.rating===top).length<row.items.length;return <tr key={row.id} className={row.shared?'':'row-unshared'}><th scope="row">{row.label}<small>{row.weight}% weight{row.measured?' · measured from file':''}{!row.shared?' · not in shared score':''}</small></th>{comparison.videos.map((video,index)=>{const item=row.items[index];return <td key={video.id} className={distinct&&item.rating!==null&&item.rating===top?'best':''}><div className="rating-line"><strong className="comparison-rating">{item.rating===null?'Unknown':`${item.rating}/4`}</strong><span className="rating-bar" aria-hidden="true"><i style={{width:`${(item.rating??0)/4*100}%`}}/></span></div><details><summary>Why</summary><p>{item.rationale}</p>{item.findingIndexes.length>0&&<FindingSources indexes={item.findingIndexes} video={video} onOpen={onOpen}/>}</details></td>;})}</tr>;})}<tr><th scope="row">First edit to try</th>{comparison.videos.map(video=><td key={video.id}><h3>{video.creative.priorities[0].title}</h3><p>{video.creative.priorities[0].action}</p></td>)}</tr></tbody></table></div><ScoreMethod/></>;
+}
+export default function CompareVideos({ videos, setup, onChanged, onOpen, onUpload }) {
+  const [selected,setSelected] = useState([]);
+  const [comparison,setComparison] = useState(null);
+  const [error,setError] = useState('');
+  const [busy,setBusy] = useState(false);
+  const eligible = videos.filter(video => video.analysisStatus === 'completed' && video.analysis);
+  const chosen = selected.map(id=>videos.find(video=>video.id===id)).filter(Boolean);
+  const ready = chosen.length >= 2 && chosen.every(video=>video.creativeStatus==='completed');
+  useEffect(()=>{setComparison(null);setError('');},[selected]);
+  // Comparing uses saved reviews only (no AI request), so run it as soon as the selection is ready.
+  const reviewKey=chosen.map(video=>`${video.id}:${video.creative?.completedAt}`).join('|');
+  useEffect(()=>{if(ready)compare();},[reviewKey,ready]);
+  function toggle(id) { setSelected(current=>current.includes(id)?current.filter(value=>value!==id):current.length<3?[...current,id]:current); }
+  async function compare() {
+    setBusy(true);setError('');
+    try { setComparison(await get(`compare?ids=${selected.map(encodeURIComponent).join(',')}`)); }
+    catch(failure) { setError(failure.message); }
+    finally { setBusy(false); }
+  }
+  if(eligible.length<2) return <section className="panel empty feature-empty"><GitCompareArrows size={40}/><h2>Bring another cut.</h2><p>Compare two or three analyzed videos. You have {eligible.length} ready. Upload another video or finish analysis on one already in your library.</p><button className="primary" onClick={onUpload}>Upload a video<ArrowRight size={15}/></button>{videos.length>0&&<div className="comparison-existing">{videos.map(video=><button className="text-button" key={video.id} onClick={()=>onOpen(video)}>{video.originalName} · {video.analysisStatus || 'not analyzed'}</button>)}</div>}</section>;
+  return <div className="compare-page"><section className="panel compare-picker"><div className="panel-title"><div><h2>Choose your cuts</h2><p>Select two or three videos. Selection order sets the column order.</p></div><span className="file-spec">{selected.length} / 3</span></div><div className="compare-options">{eligible.map(video=>{const order=selected.indexOf(video.id);const frame=video.analysis.frames[Math.min(1,video.analysis.frames.length-1)];const score=video.creativeStatus==='completed'?video.creative?.overall:null;return <label key={video.id} className={order>=0?'chosen':''}><input type="checkbox" className="sr-only" checked={order>=0} disabled={order<0&&selected.length===3} onChange={()=>toggle(video.id)}/>
+      <span className="compare-thumb">{frame&&<img src={`/api/videos/${video.id}/frames/${frame.index}`} alt="" loading="lazy"/>}{order>=0?<span className="compare-order">{order+1}</span>:<span className="compare-check"><Check size={14}/></span>}{Number.isFinite(video.analysis.metadata?.duration)&&<span className="video-card-duration">{timeLabel(video.analysis.metadata.duration).replace(/\.\d$/,'')}</span>}</span>
+      <span className="compare-info"><strong>{video.originalName}</strong><small className={video.creativeStatus==='completed'?'ok':''}>{video.creativeStatus==='completed'?`Review saved${score!==null&&score!==undefined?` · ${score}/100`:''}`:['queued','processing'].includes(video.creativeStatus)?'Review in progress…':'Creative review needed'}</small></span></label>;})}</div></section>
+    {chosen.filter(video=>video.creativeStatus!=='completed'||outdatedReview(video.creative)).map(video=><section className="panel compare-pending" key={video.id}><h3>{video.originalName}</h3><CreativeAction video={video} setup={setup} onChanged={onChanged} refresh={video.creativeStatus==='completed'}/></section>)}
+    {!comparison&&<div className="compare-toolbar"><p>{chosen.length<2?`Select ${2-chosen.length} more ${2-chosen.length===1?'video':'videos'} to compare.`:!ready?'Generate the missing creative review above; the comparison appears automatically.':busy?'Comparing…':'Uses saved reviews only.'}</p>{ready&&<button className="primary" disabled={busy} onClick={compare}>{busy?'Comparing…':'Compare again'}<GitCompareArrows size={15}/></button>}</div>}
+    {error&&<p className="notice error" role="alert">{error}</p>}
+    {comparison&&<ComparisonResults comparison={comparison} onOpen={onOpen}/>}
+  </div>;
+}
