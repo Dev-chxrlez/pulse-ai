@@ -31,31 +31,78 @@ const ACTIONS = {
   wave: {words: ['wave', 'hello', 'hi', 'hey', 'kumusta'], reply: 'Hello there! 👋'},
   sleep: {words: ['sleep', 'nap', 'rest', 'tulog'], reply: 'Zzz… 😴'},
 };
-// Soft hop sounds, synthesized with Web Audio (no files). Quiet, short, sine tones only.
+// Soft hop sounds, synthesized with Web Audio (no files). Short, cute "boing" tones.
 let audio = null;
 const SOUND_KEY = 'pulse.agent.sound';
 const soundOn = () => { try { return localStorage.getItem(SOUND_KEY) !== 'off'; } catch { return true; } };
 const setSound = on => { try { localStorage.setItem(SOUND_KEY, on ? 'on' : 'off'); } catch { /* optional */ } };
-function boop(pitch, volume = .035, length = .14) {
+// Safari (and Chrome) only allow audio that was started by a click or key press, so the
+// audio engine is created and unlocked on the user's first interaction; later hops can then play.
+function unlockAudio() {
   try {
     audio ||= new (window.AudioContext || window.webkitAudioContext)();
-    if (audio.state === 'suspended') audio.resume();
-    const now = audio.currentTime, tone = audio.createOscillator(), level = audio.createGain();
-    tone.type = 'sine';
-    tone.frequency.setValueAtTime(pitch, now);
-    tone.frequency.exponentialRampToValueAtTime(pitch * 1.8, now + length * .6);
+    if (audio.state !== 'running') audio.resume();
+    const silent = audio.createBuffer(1, 1, 22050), source = audio.createBufferSource();
+    source.buffer = silent;source.connect(audio.destination);source.start(0);
+  } catch { /* audio unavailable */ }
+}
+if (typeof window !== 'undefined') for (const type of ['pointerdown', 'keydown', 'touchstart']) window.addEventListener(type, unlockAudio, {passive: true});
+function boop(pitch, volume = .16, length = .16) {
+  try {
+    if (!audio) return;
+    if (audio.state !== 'running') audio.resume();
+    const now = audio.currentTime, tone = audio.createOscillator(), body = audio.createOscillator(), level = audio.createGain();
+    tone.type = 'sine';body.type = 'triangle';
+    // Quick upward "boing" with a soft triangle body so it's audible on laptop speakers.
+    for (const [osc, ratio] of [[tone, 1], [body, .5]]) {
+      osc.frequency.setValueAtTime(pitch * ratio, now);
+      osc.frequency.exponentialRampToValueAtTime(pitch * ratio * 1.9, now + length * .55);
+      osc.connect(level);osc.start(now);osc.stop(now + length + .03);
+    }
     level.gain.setValueAtTime(.0001, now);
-    level.gain.exponentialRampToValueAtTime(volume, now + .012);
+    level.gain.exponentialRampToValueAtTime(volume, now + .01);
     level.gain.exponentialRampToValueAtTime(.0001, now + length);
-    tone.connect(level).connect(audio.destination);
-    tone.start(now);tone.stop(now + length + .02);
+    level.connect(audio.destination);
   } catch { /* audio unavailable: stay silent */ }
 }
+// Little-robot chirps: a quick, random burst of warbly beeps with pitch glides (synthesized, original).
+function chirp(notes = 5 + Math.floor(Math.random() * 3), start = 0) {
+  if (!soundOn() || !audio) return;
+  try {
+    if (audio.state !== 'running') audio.resume();
+    let at = audio.currentTime + .02 + start;
+    for (let index = 0; index < notes; index++) {
+      const length = .05 + Math.random() * .09, base = 900 + Math.random() * 1500;
+      const shape = Math.random();
+      const tone = audio.createOscillator(), wobble = audio.createOscillator(), depth = audio.createGain(), level = audio.createGain(), soften = audio.createBiquadFilter();
+      tone.type = index % 3 === 2 ? 'triangle' : 'sine';
+      // Up-chirp, down-chirp or a bubbly warble.
+      tone.frequency.setValueAtTime(base, at);
+      if (shape < .4) tone.frequency.exponentialRampToValueAtTime(base * 1.7, at + length);
+      else if (shape < .75) tone.frequency.exponentialRampToValueAtTime(base * .6, at + length);
+      else {tone.frequency.exponentialRampToValueAtTime(base * 1.25, at + length * .5);tone.frequency.exponentialRampToValueAtTime(base * .9, at + length);}
+      wobble.frequency.value = 18 + Math.random() * 22;depth.gain.value = base * (shape >= .75 ? .12 : .04);
+      wobble.connect(depth).connect(tone.frequency);
+      soften.type = 'lowpass';soften.frequency.value = 3800;
+      level.gain.setValueAtTime(.0001, at);
+      level.gain.exponentialRampToValueAtTime(.11, at + .008);
+      level.gain.exponentialRampToValueAtTime(.0001, at + length);
+      tone.connect(soften).connect(level).connect(audio.destination);
+      tone.start(at);wobble.start(at);tone.stop(at + length + .02);wobble.stop(at + length + .02);
+      at += length + .02 + Math.random() * .06;
+    }
+  } catch { /* audio unavailable */ }
+}
+// "pol", "hey pol!", "pol come here", "halika" — calling him by name.
+export const isCall = text => /^\s*((hey|hi|yo|oy|uy|psst|hello)[\s,]*)?pol+(\s*ai)?([\s,]*(come( here)?|here|halika|tara|dito))?[\s!?.]*$/i.test(text) || /^\s*(come here|halika( dito)?|here boy|tara dito)[\s!?.]*$/i.test(text);
+// "make a sound", "beep boop", "can you talk?", "sing", "mag-ingay ka" — asking for his robot sounds.
+export const isChirp = text => !/\b(sound (on|off)|mute|unmute|quiet)\b/i.test(text) && /\b(beep\w*|boop\w*|bleep\w*|chirp\w*|whistle|sing|kanta|kumanta|ingay|speak|talk|voice|sounds?|noises?|hear)\b/i.test(text) && String(text).trim().split(/\s+/).length <= 9;
+const CALL_REPLIES = ['Beep boop! 🤖', 'Bwee-doo! 💚', 'Dee-dee? 👀', 'Boop! You called? ✨', 'Bip bip! 😊'];
 // Landing times match the hop-walk keyframes (28%, 52%, 80% of 1.4 s), then a tiny arrival chime.
 function hopSounds() {
   if (!soundOn()) return [];
   return [[390, 520], [730, 600], [1120, 680]].map(([delay, pitch]) => setTimeout(() => boop(pitch), delay))
-    .concat(setTimeout(() => boop(1040, .022, .2), 1320));
+    .concat(setTimeout(() => boop(1040, .09, .22), 1320));
 }
 
 // Guided tour: he travels to each page and explains it briefly.
@@ -270,6 +317,10 @@ export function AgentTraveler({page, onNavigate = () => {}, theme = 'dark', onTh
     setDraft(null);setBriefMode(false);setOpen(false);setReply('');notify('Filled it in! Press Generate when you’re ready. ✨');
   }
   function perform(text) {
+    if (isCall(text) || (isChirp(text) && !/^\s*(how|what|why|where|when|which|who|paano|pano|ano|saan|bakit)\b/i.test(text))) {
+      unlockAudio();setStayPage(null);setNote('');setCommand('');setOpen(false);
+      setReply(CALL_REPLIES[Math.floor(Math.random() * CALL_REPLIES.length)]);setAction({name: 'chirp', id: Date.now()});chirp();return;
+    }
     if (briefMode) {brief(text);return;}
     if (/\b(help me (write|describe)|write my (description|prompt)|describe my business|help (with|me with) (the )?(prompt|description)|gawan mo)\b/i.test(text)) {
       setCommand('');if (page === 'Create') {startBrief();return;}
@@ -285,7 +336,7 @@ export function AgentTraveler({page, onNavigate = () => {}, theme = 'dark', onTh
     if (name === 'tour') {setOpen(false);setCommand('');setReply('');goTour(0);return;}
     if (name === 'stay') {setStayPage(page);setCommand('');setReply('');setOpen(false);notify(`Okay, I’ll stay here on ${page}. 🏠`);return;}
     if (name === 'follow') {setStayPage(null);setCommand('');setReply('');setOpen(false);notify('Right behind you! 🐾');return;}
-    if (name === 'mute' || name === 'unmute') {setSound(name === 'unmute');setCommand('');setReply(name === 'mute' ? 'Okay, I’ll hop quietly. 🤫' : 'Sound on! Boing! 🔊');if (name === 'unmute') boop(700);return;}
+    if (name === 'mute' || name === 'unmute') {setSound(name === 'unmute');setCommand('');setReply(name === 'mute' ? 'Okay, I’ll hop quietly. 🤫' : 'Sound on! Boing! 🔊');if (name === 'unmute') {unlockAudio();boop(700);}return;}
     if (!name) {ask(text);return;}
     // Valid command: close the box and act; the reply shows in his speech bubble while he moves.
     setNote('');setReply(ACTIONS[name].reply);setAction({name, id: Date.now()});setCommand('');setOpen(false);
@@ -295,7 +346,7 @@ export function AgentTraveler({page, onNavigate = () => {}, theme = 'dark', onTh
   return createPortal(<div ref={root} className={`agent-traveler ${gaze && !moving ? 'alert' : ''} ${moving ? 'moving' : ''} ${direction < 0 ? 'to-left' : 'to-right'} ${bubbleRight ? 'bubble-right' : ''}`} style={{transform: `translateX(${place.x}px)`, visibility: hidden ? 'hidden' : undefined}}
     onTransitionEnd={event => {if (event.target === event.currentTarget && event.propertyName === 'transform' && moving) {busy.current = false;setMoving(false);}}}>
     <div className="agent-traveler-y" style={{transform: `translateY(${place.y}px)`, width: place.w, height: place.h}}>
-      <button ref={body} type="button" className="agent-traveler-body" aria-label="POL AI, open commands" aria-expanded={open} onClick={() => {setOpen(value => !value);setReply('');setChanges([]);setSuggested(null);setBriefMode(false);setDraft(null);setTalking(false);}} onMouseEnter={() => setTalking(true)} onMouseLeave={() => setTalking(false)} onFocus={() => setTalking(true)} onBlur={() => setTalking(false)}>
+      <button ref={body} type="button" className="agent-traveler-body" aria-label="POL AI, open commands" aria-expanded={open} onClick={() => {if (!open) chirp(2);setOpen(value => !value);setReply('');setChanges([]);setSuggested(null);setBriefMode(false);setDraft(null);setTalking(false);}} onMouseEnter={() => setTalking(true)} onMouseLeave={() => setTalking(false)} onFocus={() => setTalking(true)} onBlur={() => setTalking(false)}>
         <span className="agent-lean" style={gaze && !moving ? {transform: `rotate(${gaze.lean}deg)`} : undefined}><span key={action?.id || 'idle'} className={`agent-act ${action ? `act-${action.name}` : ''}`} onAnimationEnd={event => {if (event.target !== event.currentTarget) return;const finished = action?.name;if (finished === 'vanish' || finished === 'appear') {if (finished === 'appear') setAction(null);missionStep(finished);return;}setAction(null);setReply('');}}><AgentIcon gaze={gaze && !moving && action?.name !== 'sleep' ? gaze : null}/>{action?.name === 'sleep' && <span className="agent-zzz" aria-hidden="true">z<b>z</b><i>z</i></span>}</span></span>
       </button>
       <span className={`agent-bubble ${(talking || note || (action && reply)) && !moving && !open && tour === null ? 'show' : ''}`} role="status">{note || (action && reply ? reply : 'Hello, I’m POL AI')}</span>
