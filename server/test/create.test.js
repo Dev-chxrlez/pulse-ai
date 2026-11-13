@@ -105,6 +105,8 @@ test('quick create: brand name + description in; AI plan, matching voice and mat
     assert.equal(service.get(motionJob.id).templateId, 'motion'); assert.equal(service.get(motionJob.id).status, 'completed');
     assert.deepEqual(renderInput.motion.icons, ['Coffee', 'Sparkles', 'Clock', 'MapPin']); assert.equal(planInput.business.name, 'Test Cafe'); assert.equal(planInput.styleRequest, 'pastel and calm');
     assert.deepEqual(renderInput.motion.design, {font: 'clean', background: 'gradient', energy: 'balanced', corners: 'rounded', textCase: 'normal'}); assert.match(renderInput.brand.logo, /^data:image\/png;base64,/);
+    // No format or music from the AI: safe defaults, and PULSE's own music bed + sound effects are attached.
+    assert.equal(renderInput.motion.format, 'showcase'); assert.equal(renderInput.motion.music, 'premium'); assert.match(renderInput.music, /^data:audio\/mpeg;base64,/); assert.match(renderInput.sfx.whoosh, /^data:audio\/mpeg;base64,/);
     await assert.rejects(service.quick({inspirationId: 'missing', brandName: 'Test Cafe', description: 'Test description.'}, TEST_LOGO), error => error.status === 409);
     await assert.rejects(service.quick({inspirationId: 'CR1', brandName: 'Test Cafe'}, TEST_LOGO), error => error.status === 400);
     const job = await service.quick({inspirationId: 'CR1', brandName: 'Test Cafe', description: 'Test-only cafe description.'}, TEST_LOGO);
@@ -115,4 +117,12 @@ test('quick create: brand name + description in; AI plan, matching voice and mat
     assert.equal(renderInput.brand.primary, '#123456'); assert.deepEqual(renderInput.style.blueprint.cuts, [.2, .4, .6]);
     assert.equal(planInput.referenceStyle.pace, 'fast'); assert.equal(planInput.brand.name, 'Test Cafe');
   } finally { await rm(dataDir, {recursive: true, force: true}); }
+});
+
+test('motion plan: format, music, kickers and the user\'s offer are validated', async () => {
+  const {motionProps} = await import('../src/create/motion.js');
+  const props = motionProps({format: 'promo', music: 'upbeat', kickers: ['  New   this week ', 'x'.repeat(50)], offer: ' Buy 1 Take 1 ', icons: [], emphasis: [], design: {energy: 'calm'}});
+  assert.equal(props.format, 'promo'); assert.equal(props.music, 'upbeat'); assert.equal(props.kickers[0], 'New this week'); assert.equal(props.kickers[1].length, 28); assert.equal(props.offer, 'Buy 1 Take 1');
+  const fallback = motionProps({format: 'hack', music: 'loud', design: {energy: 'calm'}});
+  assert.equal(fallback.format, 'showcase'); assert.equal(fallback.music, 'chill'); assert.equal(fallback.offer, null);
 });

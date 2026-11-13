@@ -1,5 +1,5 @@
 import {createContext, useContext} from 'react';
-import {AbsoluteFill, Audio, Easing, interpolate, spring} from 'remotion';
+import {AbsoluteFill, Audio, Easing, Img, Sequence, interpolate, spring} from 'remotion';
 import * as Icons from 'lucide-react';
 import {FONT, Logo, readableOn, segmentTimings, useTime, wordsOrFallback} from './shared.jsx';
 
@@ -43,7 +43,7 @@ function KineticLine({words, t, size, color, accent, align = 'left', emphasis}) 
   return <div style={{fontFamily: design.family, fontWeight: design.weight, fontSize: design.upper ? size * .9 : size, lineHeight: 1.06, letterSpacing: design.font === 'tech' ? 0 : design.upper ? 1 : -2.5, color, textAlign: align, textTransform: design.upper ? 'uppercase' : 'none'}}>
     {words.map((word, index) => {const enter = interpolate(t, [word.start - .12 * design.speed, word.start + .22 * design.speed], [0, 1], {...clamp, easing: ease});const speaking = t >= word.start && t < word.end + .08;const strong = emphasis && word.text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '') === emphasis;
       return <span key={index} style={{display: 'inline-block', overflow: 'hidden', verticalAlign: 'bottom', marginRight: size * .24, paddingBottom: 6}}>
-        <span style={{display: 'inline-block', transform: `translateY(${(1 - enter) * 110}%)`, color: strong ? accent : color, textShadow: speaking ? `0 0 28px ${accent}66` : 'none'}}>{word.text}</span></span>;})}
+        <span style={{display: 'inline-block', transform: `translateY(${(1 - enter) * 110}%)`, color: strong ? accent : color, textShadow: speaking ? `0 0 28px ${accent}66` : undefined}}>{word.text}</span></span>;})}
   </div>;
 }
 function Underline({t, start, color, width = 420}) {
@@ -71,6 +71,138 @@ function Wipe({t, start, color, direction}) {
   return <AbsoluteFill style={{background: color, transform: `translateX(${x}%) skewX(-12deg)`, zIndex: 5}}/>;
 }
 
+// ---------- Photo ads: real-looking scenes built from the user's photos or AI photos ----------
+// Each ad format has its own scene layouts, so a promo, a showcase and a story look different.
+const FORMAT_LAYOUTS = {
+  'problem-solution': {hook: 'full', lines: ['split', 'full', 'card'], cut: 'flash'},
+  promo: {hook: 'stamp', lines: ['full', 'stamp', 'frame'], cut: 'flash'},
+  showcase: {hook: 'full', lines: ['frame', 'full', 'split'], cut: 'wipe'},
+  reasons: {hook: 'full', lines: ['number', 'number', 'number'], cut: 'flash'},
+  story: {hook: 'caption', lines: ['caption', 'full', 'caption'], cut: 'wipe'},
+};
+const SCRIM = 'linear-gradient(0deg, rgba(0,0,0,.82) 0%, rgba(0,0,0,.42) 38%, rgba(0,0,0,0) 62%), linear-gradient(180deg, rgba(0,0,0,.45) 0%, rgba(0,0,0,0) 22%)';
+function Photo({src, t, start, end, variant = 0, filter}) {
+  const design = useDesign();
+  const p = Math.min(1, Math.max(0, (t - start) / Math.max(1.5, end - start + .4)));
+  const moves = [[1.2, 1.05, 0], [1.04, 1.18, 0], [1.14, 1.14, 1]];
+  const [from, to, pan] = moves[variant % 3];
+  const scale = from + (to - from) * p, x = pan ? (p - .5) * -90 : 0;
+  return <AbsoluteFill style={{overflow: 'hidden', background: '#000'}}>
+    <Img src={src} style={{width: '100%', height: '100%', objectFit: 'cover', transform: `scale(${scale * (design.speed < 1 ? 1.02 : 1)}) translateX(${x}px)`, filter}}/>
+  </AbsoluteFill>;
+}
+function Kicker({text, t, start, brand, light}) {
+  const design = useDesign();
+  if (!text) return null;
+  const enter = interpolate(t, [start + .05, start + .45 * design.speed], [0, 1], {...clamp, easing: ease});
+  return <div style={{alignSelf: 'flex-start', display: 'inline-block', marginBottom: 30, padding: '14px 26px', borderRadius: design.radius ?? 999, background: light ? brand.accent : `${brand.accent}`, color: readableOn(brand.accent), fontFamily: design.family, fontWeight: 800, fontSize: 36, letterSpacing: 3, textTransform: 'uppercase', transform: `translateX(${(1 - enter) * -120}px)`, opacity: enter, boxShadow: '0 12px 40px rgba(0,0,0,.3)'}}>{text}</div>;
+}
+function OfferSticker({offer, t, start, brand, fps, frame, top = 300, right = 70, size = 300}) {
+  const design = useDesign();
+  if (!offer) return null;
+  const enter = spring({frame: frame - Math.round((start + .3) * fps), fps, config: {damping: 10, stiffness: 140}});
+  const points = Array.from({length: 32}, (_, index) => {const r = index % 2 ? 44 : 50, a = index / 32 * Math.PI * 2;return `${50 + Math.cos(a) * r},${50 + Math.sin(a) * r}`;}).join(' ');
+  return <div style={{position: 'absolute', top, right, width: size, height: size, transform: `scale(${enter}) rotate(${-14 + Math.sin(t * 2) * 4}deg)`, zIndex: 3}}>
+    <svg viewBox="0 0 100 100" style={{position: 'absolute', inset: 0, filter: 'drop-shadow(0 12px 30px rgba(0,0,0,.4))'}}><polygon points={points} fill={brand.accent}/></svg>
+    <div style={{position: 'absolute', inset: '17%', display: 'grid', placeItems: 'center', textAlign: 'center', fontFamily: design.family, fontWeight: 900, fontSize: offer.length > 18 ? 30 : offer.length > 10 ? 38 : 48, lineHeight: 1.05, color: readableOn(brand.accent), textTransform: 'uppercase'}}>{offer}</div>
+  </div>;
+}
+function CaptionLine({words, t, brand}) {
+  const design = useDesign();
+  return <div style={{textAlign: 'center', fontFamily: design.family, fontWeight: design.weight, fontSize: 92, lineHeight: 1.25, color: '#fff', textTransform: design.upper ? 'uppercase' : 'none'}}>
+    {words.map((word, index) => {const shown = t >= word.start - .05;const speaking = t >= word.start && t < word.end + .08;
+      return <span key={index} style={{display: 'inline-block', margin: '0 10px', padding: '2px 18px', borderRadius: design.radius ?? 18, background: speaking ? brand.accent : 'transparent', color: speaking ? readableOn(brand.accent) : '#fff', opacity: shown ? 1 : .35, transform: `scale(${speaking ? 1.06 : 1})`, textShadow: speaking ? 'none' : '0 4px 22px rgba(0,0,0,.6)'}}>{word.text}</span>;})}
+  </div>;
+}
+function PhotoScene({layout, src, scene, words, kicker, emphasis, offer, format, brand, t, start, end, fps, frame}) {
+  const design = useDesign();
+  const local = t - start;
+  const line = (size, color = '#fff', align) => <div style={{textShadow: color === '#fff' ? '0 6px 30px rgba(0,0,0,.55)' : undefined}}><KineticLine words={words} t={t} size={size} color={color} accent={brand.accent} emphasis={emphasis} align={align}/></div>;
+  const gray = format === 'problem-solution' && scene === 0 ? 'grayscale(1) contrast(1.15) brightness(.78)' : undefined;
+  if (layout === 'split') {
+    const reveal = interpolate(local, [0, .55 * design.speed], [100, 0], {...clamp, easing: ease});
+    return <AbsoluteFill style={{background: brand.background}}>
+      <div style={{position: 'absolute', left: 0, right: 0, top: 0, height: 1150, clipPath: `inset(0 0 ${reveal}% 0)`}}><Photo src={src} t={t} start={start} end={end} variant={scene + 1}/></div>
+      <div style={{position: 'absolute', left: 0, right: 0, top: 1150, height: 12, background: brand.accent, transform: `scaleX(${1 - reveal / 100})`, transformOrigin: 'left'}}/>
+      <AbsoluteFill style={{top: 1200, padding: '40px 84px 0', display: 'flex', flexDirection: 'column'}}><Kicker text={kicker} t={t} start={start} brand={brand}/>{line(88, design.fg)}</AbsoluteFill>
+    </AbsoluteFill>;
+  }
+  if (layout === 'frame') {
+    const enter = spring({frame: frame - Math.round(start * fps), fps, config: {damping: 14, stiffness: 110}});
+    return <AbsoluteFill>
+      <Background brand={brand} t={t} frame={frame}/>
+      <div style={{position: 'absolute', left: 150, top: 250, width: 780, height: 980, borderRadius: design.radius ?? 40, overflow: 'hidden', border: '12px solid #fff', boxShadow: '0 50px 120px rgba(0,0,0,.45)', transform: `translateY(${(1 - enter) * 700}px) rotate(${(1 - enter) * 12 - 3}deg)`}}><Photo src={src} t={t} start={start} end={end} variant={scene}/></div>
+      {format === 'promo' && <OfferSticker offer={offer} t={t} start={start} brand={brand} fps={fps} frame={frame} top={170} right={60} size={260}/>}
+      <AbsoluteFill style={{top: 1300, padding: '0 84px', display: 'flex', flexDirection: 'column'}}><Kicker text={kicker} t={t} start={start} brand={brand}/>{line(84, design.fg)}</AbsoluteFill>
+    </AbsoluteFill>;
+  }
+  if (layout === 'card') return <AbsoluteFill>
+    <Photo src={src} t={t} start={start} end={end} variant={scene}/>
+    <AbsoluteFill style={{background: 'rgba(0,0,0,.42)'}}/>
+    <AbsoluteFill style={{justifyContent: 'center', padding: '0 70px'}}>
+      <div style={{padding: '64px 60px', borderRadius: design.radius ?? 44, background: 'rgba(255,255,255,.12)', border: '2px solid rgba(255,255,255,.25)', backdropFilter: 'blur(18px)', display: 'flex', flexDirection: 'column', transform: `translateY(${interpolate(local, [0, .5 * design.speed], [240, 0], {...clamp, easing: ease})}px)`}}><Kicker text={kicker} t={t} start={start} brand={brand}/>{line(86)}</div>
+    </AbsoluteFill>
+  </AbsoluteFill>;
+  if (layout === 'stamp') {
+    const slam = spring({frame: frame - Math.round((start + .1) * fps), fps, config: {damping: 11, stiffness: 160}});
+    return <AbsoluteFill>
+      <Photo src={src} t={t} start={start} end={end} variant={scene + 2}/>
+      <AbsoluteFill style={{background: SCRIM}}/>
+      <OfferSticker offer={offer} t={t} start={start} brand={brand} fps={fps} frame={frame}/>
+      <AbsoluteFill style={{justifyContent: 'flex-end', paddingBottom: 330}}>
+        <div style={{alignSelf: 'flex-start', marginLeft: 84}}><Kicker text={kicker} t={t} start={start} brand={brand}/></div>
+        <div style={{background: brand.accent, padding: '40px 84px', transform: `rotate(-4deg) scale(${.6 + slam * .4})`, opacity: Math.min(1, slam * 1.5), margin: '0 -40px', boxShadow: '0 30px 80px rgba(0,0,0,.4)'}}>
+          <KineticLine words={words} t={t} size={words.length > 6 ? 82 : 96} color={readableOn(brand.accent)} accent={brand.primary === brand.accent ? '#000' : readableOn(brand.accent)} emphasis={emphasis}/>
+        </div>
+      </AbsoluteFill>
+    </AbsoluteFill>;
+  }
+  if (layout === 'number') {
+    const enter = interpolate(local, [0, .5 * design.speed], [0, 1], {...clamp, easing: ease});
+    return <AbsoluteFill>
+      <Photo src={src} t={t} start={start} end={end} variant={scene}/>
+      <AbsoluteFill style={{background: SCRIM}}/>
+      <div style={{position: 'absolute', left: 60, top: 230, fontFamily: design.family, fontWeight: 900, fontSize: 420, lineHeight: 1, color: 'transparent', WebkitTextStroke: `10px ${brand.accent}`, opacity: enter, transform: `translateY(${(1 - enter) * 80}px)`, textShadow: '0 20px 60px rgba(0,0,0,.35)'}}>{scene}</div>
+      <AbsoluteFill style={{justifyContent: 'flex-end', padding: '0 84px 320px', display: 'flex', flexDirection: 'column'}}><Kicker text={kicker} t={t} start={start} brand={brand}/>{line(96)}</AbsoluteFill>
+    </AbsoluteFill>;
+  }
+  if (layout === 'caption') return <AbsoluteFill>
+    <Photo src={src} t={t} start={start} end={end} variant={scene}/>
+    <AbsoluteFill style={{background: 'linear-gradient(0deg, rgba(0,0,0,.55) 0%, rgba(0,0,0,.15) 50%, rgba(0,0,0,.35) 100%)'}}/>
+    <AbsoluteFill style={{justifyContent: 'center', alignItems: 'center', padding: '0 70px', gap: 30, top: 380}}>
+      {kicker && <div style={{fontFamily: design.family, fontWeight: 700, fontSize: 38, letterSpacing: 4, color: brand.accent, textTransform: 'uppercase', textShadow: '0 4px 20px rgba(0,0,0,.6)', opacity: interpolate(local, [0, .3], [0, 1], clamp)}}>{kicker}</div>}
+      <CaptionLine words={words} t={t} brand={brand}/>
+    </AbsoluteFill>
+  </AbsoluteFill>;
+  // full
+  return <AbsoluteFill>
+    <Photo src={src} t={t} start={start} end={end} variant={scene} filter={gray}/>
+    <AbsoluteFill style={{background: SCRIM}}/>
+    <AbsoluteFill style={{justifyContent: 'flex-end', padding: '0 84px 320px', display: 'flex', flexDirection: 'column'}}>
+      <Kicker text={kicker} t={t} start={start} brand={brand}/>
+      {line(scene === 0 ? (words.length > 5 ? 112 : 128) : 100)}
+      {scene === 0 && <Underline t={t} start={start} color={brand.accent}/>}
+    </AbsoluteFill>
+  </AbsoluteFill>;
+}
+function Flash({t, start}) {
+  const p = interpolate(t, [start - .04, start, start + .2], [0, .85, 0], clamp);
+  return p > 0 ? <AbsoluteFill style={{background: '#fff', opacity: p, zIndex: 5}}/> : null;
+}
+// Music bed ducks under the voice; whoosh on every cut, riser into the CTA, pop when the button lands.
+function Soundtrack({music, sfx, words, windows, cta, fps, duration}) {
+  const speechAt = time => words.some(word => time >= word.start - .15 && time <= word.end + .3);
+  const volume = frame => {const time = frame / fps;const fade = Math.min(1, time / .5, Math.max(0, (duration - time) / 1.2));return (speechAt(time) ? .14 : .3) * fade;};
+  const at = (seconds, length, src, gain, key) => src && <Sequence key={key} from={Math.max(0, Math.round(seconds * fps))} durationInFrames={Math.round(length * fps)} layout="none"><Audio src={src} volume={gain}/></Sequence>;
+  return <>
+    {music && <Audio src={music} loop volume={volume}/>}
+    {windows.slice(1).map(([start], index) => at(start - .28, .6, sfx?.whoosh, .45, `w${index}`))}
+    {at(cta - 1.15, 1.2, sfx?.riser, .3, 'riser')}
+    {at(cta, .6, sfx?.whoosh, .4, 'ctaw')}
+    {at(cta + .5, .3, sfx?.pop, .5, 'pop')}
+  </>;
+}
+
 export function MotionPro(props) {
   const {brand, script, audio} = props;
   const {frame, fps, t, duration} = useTime();
@@ -88,8 +220,33 @@ export function MotionPro(props) {
   const local = t - start;
   const layout = scene === 0 ? 'hook' : ['badge', 'hero', 'card'][(scene - 1) % 3];
   const push = interpolate(local, [0, 4], [1.04, 1], {...clamp, easing: ease});
+  const photos = props.visuals?.length ? props.visuals : null;
+  const format = FORMAT_LAYOUTS[props.motion?.format] ? props.motion.format : 'showcase';
+  const plan = FORMAT_LAYOUTS[format];
+  const kickers = props.motion?.kickers || [];
+  const offer = props.motion?.offer || null;
+  const audioLayer = <>{audio && <Audio src={audio}/>}<Soundtrack music={props.music} sfx={props.sfx} words={words} windows={windows} cta={timings.cta[0]} fps={fps} duration={duration}/></>;
+  if (photos) {
+    const [, end] = windows[scene];
+    return <Design.Provider value={design}><AbsoluteFill style={{background: brand.background, overflow: 'hidden'}}>
+      {audioLayer}
+      {!inCta && <PhotoScene key={scene} layout={scene === 0 ? plan.hook : plan.lines[(scene - 1) % plan.lines.length]} src={photos[scene % photos.length]} scene={scene} words={sceneWords(scene)} kicker={kickers[scene]} emphasis={emphasis[scene]} offer={offer} format={format} brand={brand} t={t} start={start} end={end} fps={fps} frame={frame}/>}
+      {!inCta && <div style={{position: 'absolute', top: 96, left: 84, right: 84, display: 'flex', alignItems: 'center', justifyContent: 'space-between', zIndex: 4}}>
+        <div style={{padding: '14px 22px', borderRadius: design.radius ?? 26, background: 'rgba(255,255,255,.9)', boxShadow: '0 10px 30px rgba(0,0,0,.25)'}}><Logo src={brand.logo} name={brand.name} size={64} color="#111"/></div>
+        <div style={{display: 'flex', gap: 10}}>{windows.map((_, index) => <div key={index} style={{width: index === scene ? 44 : 14, height: 14, borderRadius: 7, background: index <= scene ? brand.accent : 'rgba(255,255,255,.45)'}}/>)}</div>
+      </div>}
+      {windows.slice(1).map(([at], index) => plan.cut === 'flash' ? <Flash key={index} t={t} start={at}/> : <Wipe key={index} t={t} start={at} color={index % 2 ? brand.primary : brand.accent} direction={index % 2}/>)}
+      <Wipe t={t} start={timings.cta[0]} color={brand.primary} direction={1}/>
+      {inCta && <AbsoluteFill>
+        <Photo src={photos[0]} t={t} start={timings.cta[0]} end={duration} variant={1}/>
+        <AbsoluteFill style={{background: `${brand.background}d9`}}/>
+        <MotionCta brand={brand} cta={script.cta} t={t} start={timings.cta[0]} fps={fps} frame={frame}/>
+        <OfferSticker offer={offer} t={t} start={timings.cta[0] + .4} brand={brand} fps={fps} frame={frame} top={150} right={60} size={250}/>
+      </AbsoluteFill>}
+    </AbsoluteFill></Design.Provider>;
+  }
   return <Design.Provider value={design}><AbsoluteFill style={{background: brand.background, overflow: 'hidden'}}>
-    {audio && <Audio src={audio}/>}
+    {audioLayer}
     <Background brand={brand} t={t} frame={frame}/>
     {!inCta && <AbsoluteFill style={{transform: `scale(${push})`}}>
       {layout === 'hook' && <AbsoluteFill style={{justifyContent: 'center', padding: '0 96px', gap: 50}}>

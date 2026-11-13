@@ -1,5 +1,5 @@
 import {randomUUID} from 'node:crypto';
-import {mkdir, rm, stat} from 'node:fs/promises';
+import {mkdir, readFile, rm, stat} from 'node:fs/promises';
 import path from 'node:path';
 import {fileTypeFromBuffer} from 'file-type';
 import {createStore} from '../store.js';
@@ -22,6 +22,18 @@ const text = (value, max, field, required = false) => {
   return clean;
 };
 export const LOGO_MAX = 3 * 1024 * 1024;
+// PULSE's own synthesized music beds and sound effects (server/scripts/make-audio.mjs), sent to the renderer as data URIs.
+const AUDIO_DIR = new URL('../../assets/audio/', import.meta.url);
+const audioCache = new Map();
+async function audioAsset(name) {
+  if (!audioCache.has(name)) audioCache.set(name, readFile(new URL(`${name}.mp3`, AUDIO_DIR)).then(data => `data:audio/mpeg;base64,${data.toString('base64')}`).catch(() => null));
+  return audioCache.get(name);
+}
+export async function soundtrack(music) {
+  if (!['upbeat', 'chill', 'premium'].includes(music)) return null;
+  const [bed, whoosh, pop, riser] = await Promise.all([audioAsset(`music-${music}`), audioAsset('sfx-whoosh'), audioAsset('sfx-pop'), audioAsset('sfx-riser')]);
+  return bed ? {music: bed, sfx: {whoosh, pop, riser}} : null;
+}
 
 export async function createCreateService({dataDir, provider: injectedProvider, voice: injectedVoice, images: injectedImages, render = renderVideo, apiKey = process.env.OPENAI_API_KEY, inspiration: findInspiration = () => null}) {
   const root = path.join(dataDir, 'creations');
@@ -86,13 +98,18 @@ export async function createCreateService({dataDir, provider: injectedProvider, 
         try {
           await mkdir(directory, {recursive: true, mode: 0o700});
           let visuals = [];
-          if (scene?.prompts?.length) { await store.update(id, {status: 'voicing', stage: 'Creating scene images'}); visuals = await images.scenes(scene.prompts, scene.photos || []); await store.update(id, {visualSources: visuals.map(item => item.source)}); }
+          if (scene?.prompts?.length) {
+            await store.update(id, {status: 'voicing', stage: scene.photos?.length ? 'Preparing your photos' : 'Creating scene photos'});
+            try { visuals = await images.scenes(scene.prompts, scene.photos || []); await store.update(id, {visualSources: visuals.map(item => item.source)}); }
+            catch (error) { if (!(scene.optional && error instanceof ImageError)) throw error; await store.update(id, {visualSources: [], visualNote: `${error.message} Made with motion graphics instead.`}); }
+          }
+          const audioBed = input.templateId === 'motion' && motion?.music && input.music !== 'none' ? await soundtrack(motion.music) : null;
           await store.update(id, {status: 'voicing', stage: 'Recording voiceover'});
           const spoken = await voice.synthesize(scriptText(script), input.voiceId);
           const {durationSeconds, timings, words} = timingsFrom(script, spoken.alignment);
           await store.update(id, {status: 'rendering', stage: 'Rendering video', voiceCached: spoken.cached, durationSeconds: Math.round(durationSeconds * 10) / 10});
           let last = 0;
-          await render({templateId: input.templateId, output: path.join(directory, 'video.mp4'), inputProps: {motion: motion || null, visuals: visuals.map(item => item.src), style: {pace: inspiration?.pace || 'medium', blueprint: inspiration?.blueprint || null}, brand: {...brand, logo: logoData}, script, audio: `data:audio/mpeg;base64,${spoken.audioBase64}`, timings, words, durationSeconds}, onProgress: progress => { if (progress - last >= .05 || progress === 1) { last = progress; store.update(id, {progress: Math.round(progress * 100)}).catch(() => {}); } }});
+          await render({templateId: input.templateId, output: path.join(directory, 'video.mp4'), inputProps: {motion: motion || null, visuals: visuals.map(item => item.src), music: audioBed?.music || null, sfx: audioBed?.sfx || null, style: {pace: inspiration?.pace || 'medium', blueprint: inspiration?.blueprint || null}, brand: {...brand, logo: logoData}, script, audio: `data:audio/mpeg;base64,${spoken.audioBase64}`, timings, words, durationSeconds}, onProgress: progress => { if (progress - last >= .05 || progress === 1) { last = progress; store.update(id, {progress: Math.round(progress * 100)}).catch(() => {}); } }});
           const size = (await stat(path.join(directory, 'video.mp4'))).size;
           await store.update(id, {status: 'completed', stage: 'Done', progress: 100, size, completedAt: new Date().toISOString()});
         } catch (error) {
@@ -111,18 +128,23 @@ export async function createCreateService({dataDir, provider: injectedProvider, 
       const name = text(input.brandName, 60, 'brand name', true), description = text(input.description, 600, 'brand description', true);
       if (!logo?.buffer?.length) throw fail('Add your logo first.');
       const styleRequest = text(input.style, 200, 'style');
+      const offer = text(input.offer, 60, 'offer');
+      const photoMode = input.visuals === 'none' ? 'none' : 'photos';
       const reference = input.inspirationId ? findInspiration(String(input.inspirationId)) : null;
       if (input.inspirationId && !reference?.style?.blueprint) throw fail('That reference ad is not ready.', 409);
       if (!(injectedProvider || apiKey)) throw fail('Configure the backend AI API key.', 503);
       let plan;
-      try { plan = validQuick(reference ? (await provider.structured('quick_ad_plan', quickJsonSchema, QUICK_INSTRUCTIONS, {brand: {name, description}, referenceStyle: {pace: reference.style.pace, scenes: reference.style.blueprint.cuts.length + 1, opensWithBrand: reference.style.blueprint.brandEarly, textLed: reference.style.blueprint.textHeavy}, styleRequest: styleRequest || null})).data : (await provider.structured('motion_ad_plan', motionJsonSchema, MOTION_INSTRUCTIONS, {business: {name, description}, styleRequest: styleRequest || null})).data); }
+      try { plan = validQuick(reference ? (await provider.structured('quick_ad_plan', quickJsonSchema, QUICK_INSTRUCTIONS, {brand: {name, description}, referenceStyle: {pace: reference.style.pace, scenes: reference.style.blueprint.cuts.length + 1, opensWithBrand: reference.style.blueprint.brandEarly, textLed: reference.style.blueprint.textHeavy}, styleRequest: styleRequest || null})).data : (await provider.structured('motion_ad_plan', motionJsonSchema, MOTION_INSTRUCTIONS, {business: {name, description}, offer: offer || null, styleRequest: styleRequest || null})).data); }
       catch (error) { if (error instanceof AnalysisError) throw fail(`The AI could not plan the video (${error.message})`, 502); throw error; }
       let script;
       try { script = validateScript(plan.script); } catch { script = validateScript({hook: plan.script.hook.split(/\s+/).slice(0, 7).join(' '), lines: plan.script.lines.map(line => line.split(/\s+/).slice(0, 9).join(' ')), cta: plan.script.cta.split(/\s+/).slice(0, 4).join(' ')}); }
       const chosen = pickVoice(await voice.voices(), plan.voice);
       if (!chosen) throw fail('No ElevenLabs voices are available on this account.', 503);
-      const job = await this.generate({templateId: reference ? 'matched' : 'motion', ...(reference ? {inspirationId: input.inspirationId} : {motion: JSON.stringify(motionProps(plan))}), brandName: name, tagline: plan.tagline, description, ...plan.colors, script: JSON.stringify(script), voiceId: chosen.id}, logo, reference ? {prompts: plan.visuals || [], photos} : null);
-      await store.update(job.id, {aiPlan: {voiceCharacter: plan.voice, voiceName: chosen.name, colors: plan.colors, tagline: plan.tagline, motion: reference ? null : motionProps(plan), visuals: plan.visuals || [], userPhotos: photos.length}});
+      const motion = reference ? null : motionProps({...plan, offer});
+      // Motion Pro scenes: the user's photos first, AI photos for the rest; falls back to graphics if images fail.
+      const motionScene = photoMode === 'none' ? null : photos.length || plan.visuals?.length ? {prompts: plan.visuals?.length ? plan.visuals : photos.map(() => ''), photos, optional: true} : null;
+      const job = await this.generate({templateId: reference ? 'matched' : 'motion', ...(reference ? {inspirationId: input.inspirationId} : {motion: JSON.stringify(motion)}), brandName: name, tagline: plan.tagline, description, ...plan.colors, script: JSON.stringify(script), voiceId: chosen.id}, logo, reference ? {prompts: plan.visuals || [], photos} : motionScene);
+      await store.update(job.id, {aiPlan: {voiceCharacter: plan.voice, voiceName: chosen.name, colors: plan.colors, tagline: plan.tagline, motion, visuals: plan.visuals || [], userPhotos: photos.length, photoMode}});
       return publicJob(store.get(job.id));
     },
     async idle() { await tail; },
