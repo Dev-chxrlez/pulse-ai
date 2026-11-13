@@ -479,3 +479,40 @@
 :root[data-theme="light"] .planner-ask p b { color: #1f2714; }
 :root[data-theme="light"] .agent-panel-hint { color: #b3bfa9; }
 :root[data-theme="light"] .agent-changes { background: #1a2011; color: #d1dbc7; }
+:root[data-theme="light"] /* Auto-playing tour: a thin bar shows when POL moves on */
+.agent-tour-progress { background: #28301c; }
+:root[data-theme="light"] .agent-tour-progress i { background: #e5ebdd; }
+:root[data-theme="light"] .photo-mode button { border: 1px solid #b4c4a4; background: #e8ede4; color: #3e4830; }
+:root[data-theme="light"] .photo-mode button strong { color: #1f2714; }
+:root[data-theme="light"] .photo-mode button small { color: #5e6951; }
+:root[data-theme="light"] .photo-mode button.chosen { background: #e1e8db; }
+:root[data-theme="light"] .photo-thumb { border: 1px solid #b4c4a4; }
+:root[data-theme="light"] .photo-thumb button { background: rgba(255, 255, 255,.65); color: #000000; }
+:root[data-theme="light"] .photo-add { border: 1.5px dashed #b4c4a4; background: #e8ede4; }
+:root[data-theme="light"] .photo-add small { color: #5e6951; }
+:root[data-theme="light"] .photo-add:hover { background: #e1e8db; }
+:root[data-theme="light"] .brief-box textarea { border: 1px solid #b4c4a4; background: #e1e7dc; color: #212a16; }
+:root[data-theme="light"] .brief-box-tips { color: #5e6951; }
+:root[data-theme="light"] .brief-box-tips span { border: 1px solid #c3cfb9; color: #3e4830; }
+:root[data-theme="light"] .brief-count { color: #5e6951; }
+:root[data-theme="light"] .brief-count.short { color: #b47c17; }
+:root[data-theme="light"] .brief-tip { background: #dee5d8; color: #242c18; }
+:root[data-theme="light"] .create-step.needs .step-body { box-shadow: 0 0 0 2px #b47c17; }
+:root[data-theme="light"] .create-step.needs .step-num { background: #b47c17; color: #e2e9d8; border-color: #b47c17; }
+:root[data-theme="light"] .generate-nudge { color: #b47c17; }
+:root[data-theme="light"] .logo-mini { border: 1.5px dashed #b4c4a4; background: #e8ede4; color: #3e4830; }
+:root[data-theme="light"] .logo-mini:hover, :root[data-theme="light"] .logo-mini.dragging { background: #e1e8db; }
+:root[data-theme="light"] .logo-mini.chosen img { background: #00000010; }
+:root[data-theme="light"] .logo-mini-remove { border: 1px solid #b4c4a4; background: #dee5d8; color: #3e4830; }
+:root[data-theme="light"] .create-extras { border: 1px solid #d2dbca; background: #e9eee6; }
+:root[data-theme="light"] .create-extras.open { border-color: #c3cfb9; }
+:root[data-theme="light"] .extras-toggle { color: #3e4830; }
+:root[data-theme="light"] .extras-toggle strong { color: #1f2714; }
+:root[data-theme="light"] .extras-toggle small { color: #5e6951; }
+:root[data-theme="light"] .extras-body { border-top: 1px solid #d2dbca; }
+:root[data-theme="light"] .extra-label { color: #5e6951; }
+:root[data-theme="light"] .segmented { border: 1px solid #c3cfb9; background: #e8ede4; }
+:root[data-theme="light"] .segmented button { color: #5e6951; }
+:root[data-theme="light"] .segmented button.chosen { color: #e2e9d8; }
+:root[data-theme="light"] .photo-note { color: #5e6951; }
+:root[data-theme="light"] .extras-body input:not([type="file"]) { border: 1px solid #b4c4a4; background: #e1e7dc; color: #212a16; }

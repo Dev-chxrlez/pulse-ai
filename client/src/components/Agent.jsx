@@ -111,7 +111,7 @@ export const TOUR = [
   {page: 'Trending Ads', title: 'Market researcher', text: 'Search an advertiser’s website to find ads that keep running. I analyze their videos and show why they work.'},
   {page: 'Video Analysis', title: 'Creative director', text: 'Upload a video or paste a Facebook link. I review the hook, pacing, captions and call to action, with proof from the frames.'},
   {page: 'Compare Videos', title: 'Side-by-side review', text: 'Pick two or three cuts and compare them criterion by criterion, so you know which choices are stronger.'},
-  {page: 'Create', title: 'Video editor', text: 'Describe your business. I write the script, pick colors and a voice, and make a motion-graphics ad.'},
+  {page: 'Create', title: 'Video editor', text: 'Fill in five easy steps: name, a few lines about your business, your logo, then optional style and photos. Press Generate and I write it, voice it, add music and animate a real photo ad.'},
   {page: 'Planner', title: 'Master planner', text: 'Talk strategy and niche with me, and I’ll put posting, filming, brainstorm and promo days on your calendar.'},
   {page: 'Performance', title: 'Social analyst', text: 'Real views, engagement and comment mood across your posts, plus your typical range once you have enough data.'},
   {page: 'Niche Intelligence', title: 'Account tracker', text: 'Add your accounts and paste post links. I read the public numbers and summarize what people say in the comments.'},
@@ -148,6 +148,7 @@ export function AgentTraveler({page, onNavigate = () => {}, theme = 'dark', onTh
   const root = useRef();const input = useRef();const body = useRef();
   const [gaze, setGaze] = useState(null);
   const [tour, setTour] = useState(null); // index into TOUR while a tour is running
+  const [tourPaused, setTourPaused] = useState(false);
   const [stayPage, setStayPage] = useState(null); // page he stays on after "stay"; null = follow
   const [note, setNote] = useState(''); const noteTimer = useRef();
   // Writing helper for the Create page: notes in, clear business description out.
@@ -248,6 +249,13 @@ export function AgentTraveler({page, onNavigate = () => {}, theme = 'dark', onTh
     const onKey = event => {if (event.key === 'Escape') setTour(null);};
     document.addEventListener('keydown', onKey);return () => document.removeEventListener('keydown', onKey);
   }, [tour]);
+  // Auto-play: each stop stays up long enough to read, then he hops to the next one by himself.
+  const tourDelay = tour === null ? 0 : tour < TOUR.length ? Math.max(5200, TOUR[tour].text.split(/\s+/).length * 300 + 1800) : 4500;
+  useEffect(() => {
+    if (tour === null || moving || tourPaused) return undefined;
+    const timer = setTimeout(() => {if (tour >= TOUR.length) setTour(null);else goTour(tour + 1);}, tourDelay);
+    return () => clearTimeout(timer);
+  }, [tour, moving, tourPaused, tourDelay]);
   function goTour(index) {
     if (index < 0) return;
     if (index >= TOUR.length) {setTour(TOUR.length);return;}
@@ -333,7 +341,7 @@ export function AgentTraveler({page, onNavigate = () => {}, theme = 'dark', onTh
     const themeCommand = parseCommand(text);
     if (themeCommand === 'theme-light' || themeCommand === 'theme-dark' || themeCommand === 'theme-toggle') {startTheme(themeCommand === 'theme-toggle' ? (theme === 'light' ? 'dark' : 'light') : themeCommand.slice(6));return;}
     const name = parseCommand(text);
-    if (name === 'tour') {setOpen(false);setCommand('');setReply('');goTour(0);return;}
+    if (name === 'tour') {setOpen(false);setCommand('');setReply('');setTourPaused(false);goTour(0);return;}
     if (name === 'stay') {setStayPage(page);setCommand('');setReply('');setOpen(false);notify(`Okay, I’ll stay here on ${page}. 🏠`);return;}
     if (name === 'follow') {setStayPage(null);setCommand('');setReply('');setOpen(false);notify('Right behind you! 🐾');return;}
     if (name === 'mute' || name === 'unmute') {setSound(name === 'unmute');setCommand('');setReply(name === 'mute' ? 'Okay, I’ll hop quietly. 🤫' : 'Sound on! Boing! 🔊');if (name === 'unmute') {unlockAudio();boop(700);}return;}
@@ -355,7 +363,8 @@ export function AgentTraveler({page, onNavigate = () => {}, theme = 'dark', onTh
           <span className="agent-tour-step">{tour + 1} / {TOUR.length}</span>
           <strong className="agent-tour-title">{TOUR[tour].title}</strong>
           <p className="agent-tour-text">{TOUR[tour].text}</p>
-          <div className="agent-tour-actions"><button type="button" className="agent-tour-end" onClick={() => setTour(null)}>End tour</button><span>{tour > 0 && <button type="button" className="agent-tour-back" onClick={() => goTour(tour - 1)}>Back</button>}<button type="button" className="agent-tour-next" onClick={() => goTour(tour + 1)}>{tour === TOUR.length - 1 ? 'Finish' : 'Next'}</button></span></div>
+          <span className="agent-tour-progress" aria-hidden="true"><i key={`${tour}-${tourPaused}`} className={tourPaused ? 'paused' : ''} style={{animationDuration: `${tourDelay}ms`}}/></span>
+          <div className="agent-tour-actions"><button type="button" className="agent-tour-end" onClick={() => setTour(null)}>End tour</button><span>{tour > 0 && <button type="button" className="agent-tour-back" onClick={() => goTour(tour - 1)}>Back</button>}<button type="button" className="agent-tour-back" onClick={() => setTourPaused(value => !value)} aria-label={tourPaused ? 'Resume tour' : 'Pause tour'}>{tourPaused ? '▶ Play' : '❚❚ Pause'}</button><button type="button" className="agent-tour-next" onClick={() => goTour(tour + 1)}>{tour === TOUR.length - 1 ? 'Finish' : 'Next'}</button></span></div>
         </> : <>
           <strong className="agent-tour-title">That’s the tour! 🎉</strong>
           <p className="agent-tour-text">Click me anytime and type what you need, or ask for another tour.</p>

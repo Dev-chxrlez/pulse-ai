@@ -1,6 +1,6 @@
 import {useEffect, useMemo, useRef, useState} from 'react';
 import {Player} from '@remotion/player';
-import {AlertCircle, ArrowUpRight, Check, Download, Film, Mic, Palette, Sparkles, Upload, Wand2} from 'lucide-react';
+import {AlertCircle, ArrowUpRight, Check, ChevronDown, Download, Film, ImagePlus, Mic, Music2, Palette, SlidersHorizontal, Sparkles, Upload, Wand2, X} from 'lucide-react';
 import {apiRequest, get} from '../api';
 import {TEMPLATES} from '../video/templates.jsx';
 import BriefChat from './BriefChat';
@@ -10,6 +10,7 @@ const emptyScript = {hook: '', lines: ['', '', ''], cta: ''};
 const words = text => text.trim().split(/\s+/).filter(Boolean).length;
 
 const STYLE_IDEAS = [['Minimal & elegant', 'minimal and elegant, serif font, calm, soft colors'], ['Bold & energetic', 'bold and energetic, heavy font, fast, all caps'], ['Pastel & soft', 'pastel colors, light background, playful rounded font, calm'], ['Luxury', 'luxurious black and gold, elegant serif, slow and calm'], ['Neon night', 'neon colors on dark, grid background, fast, sharp corners'], ['Techy', 'modern tech look, monospace font, grid, sharp corners']];
+const FORMAT_NAMES = {'problem-solution': 'Problem → Solution', promo: 'Promo / Sale', showcase: 'Product showcase', reasons: '3 reasons why', story: 'Story / recommendation'};
 const StepNumber = ({n, done}) => <span className={`step-num ${done ? 'done' : ''}`} aria-hidden="true">{done ? <Check size={13} strokeWidth={3}/> : n}</span>;
 
 export default function Create({onOpen, onLibraryChanged, inspiration, onClearInspiration}) {
@@ -27,6 +28,9 @@ export default function Create({onOpen, onLibraryChanged, inspiration, onClearIn
   // POL AI's writing helper fills the brand fields.
   useEffect(() => {const onFill = event => setBrand(current => ({...current, brandName: event.detail.brandName || current.brandName, description: event.detail.description || current.description}));window.addEventListener('pulse:fill-create', onFill);return () => window.removeEventListener('pulse:fill-create', onFill);}, []);
   const [advanced, setAdvanced] = useState(false);const [style, setStyle] = useState('');const [dragging, setDragging] = useState(false);const [motionPlan, setMotionPlan] = useState(null);
+  const [nudge, setNudge] = useState('');const [extrasOpen, setExtrasOpen] = useState(false);const [photos, setPhotos] = useState([]);const [photoMode, setPhotoMode] = useState('photos');const [offer, setOffer] = useState('');const photoInput = useRef();
+  const photoUrls = useMemo(() => photos.map(file => URL.createObjectURL(file)), [photos]);
+  useEffect(() => () => photoUrls.forEach(url => URL.revokeObjectURL(url)), [photoUrls]);
   useEffect(() => {
     Promise.all([get('create/templates'), get('create/setup'), get('create/videos')]).then(([list, status, history]) => {setTemplates(list.templates);setSetup(status);setJobs(history.videos);}).catch(failure => setError(failure.message));
     get('create/voices').then(data => {setVoices(data.voices);setVoiceId(current => current || data.voices.find(voice => voice.category === 'premade')?.id || data.voices[0]?.id || '');}).catch(failure => setVoiceError(failure.message));
@@ -63,11 +67,20 @@ export default function Create({onOpen, onLibraryChanged, inspiration, onClearIn
     } catch (failure) {setError(failure.message);} finally {setBusy('');}
   }
   async function quickGenerate(event) {
-    event.preventDefault();setBusy('generate');setError('');
+    event.preventDefault();
+    // Instead of a dead button: point the user at the first step that still needs something.
+    if (missing.length) {
+      const first = missing[0];setNudge(first);setError('');
+      const target = first === 'brand name' ? 'brand-input' : first === 'business description' ? 'brief-input' : 'logo-step';
+      const node = document.getElementById(target);node?.scrollIntoView({behavior: 'smooth', block: 'center'});if (node?.focus) setTimeout(() => node.focus({preventScroll: true}), 350);
+      return;
+    }
+    setNudge('');setBusy('generate');setError('');
     try {
       const form = new FormData();
-      for (const [key, value] of Object.entries({...(inspiration?.style?.blueprint ? {inspirationId: inspiration.id} : {}), brandName: brand.brandName, description: brand.description, ...(style.trim() ? {style: style.trim()} : {})})) form.append(key, value);
+      for (const [key, value] of Object.entries({...(inspiration?.style?.blueprint ? {inspirationId: inspiration.id} : {}), brandName: brand.brandName, description: brand.description, ...(style.trim() ? {style: style.trim()} : {}), ...(offer.trim() ? {offer: offer.trim()} : {}), ...(photoMode === 'none' ? {visuals: 'none'} : {})})) form.append(key, value);
       form.append('logo', logo);
+      if (photoMode === 'photos') photos.forEach(file => form.append('photos', file));
       const data = await apiRequest('create/quick', {method: 'POST', body: form}, 90000);setActive(data.video);
     } catch (failure) {setError(failure.message);} finally {setBusy('');}
   }
@@ -90,28 +103,58 @@ export default function Create({onOpen, onLibraryChanged, inspiration, onClearIn
     if (file.size > 3 * 1024 * 1024) return setError('Logos must be 3 MiB or smaller.');
     setError('');setLogo(file);
   }
+  function addPhotos(files) {
+    const good = [...files].filter(file => /^image\/(png|jpeg|webp)$/.test(file.type) && file.size <= 8 * 1024 * 1024);
+    if (good.length < files.length) setError('Photos must be PNG, JPG or WebP, up to 8 MB each.');
+    setPhotos(current => [...current, ...good].slice(0, 4));
+  }
   const missing = [!brand.brandName.trim() && 'brand name', brand.description.trim().length < 10 && 'business description', !logo && 'logo'].filter(Boolean);
   const chosen = TEMPLATES[templateId];
   const working = active && !['completed', 'failed'].includes(active.status);
   if (!advanced) return <div className="create-page">
     {inspiration?.style?.blueprint && <section className="inspiration-banner"><Sparkles size={16}/><div><span className="eyebrow">STYLE FROM A TRENDING AD</span><p><b>{inspiration.advertiser}</b>{inspiration.daysRunning ? ` · ran ${inspiration.daysRunning} days` : ''} · <a href={inspiration.transparencyUrl} target="_blank" rel="noreferrer">source<ArrowUpRight size={11}/></a></p><p className="report-caption">PULSE reuses its style ({inspiration.style.blueprint.cuts.length + 1} scenes, {inspiration.style.pace} pace, {inspiration.style.blueprint.brandEarly ? 'brand-first' : 'text-first'} opening), not its content. Your video will look different.</p></div><button className="text-button" onClick={onClearInspiration}>Remove</button></section>}
     <div className="create-grid">
-      <section className="panel create-form quick-form"><div className="panel-title"><div><h2>Tell us about your business</h2><p>AI writes the script, designs the look, picks a voice and animates your ad.</p></div></div>
+      <section className="panel create-form quick-form"><div className="panel-title"><div><h2>Make a video ad</h2><p>2 quick steps · about 2 minutes</p></div></div>
         <form className="create-steps" onSubmit={quickGenerate}>
-          <div className={`create-step ${brand.brandName.trim() ? 'done' : ''}`}><StepNumber n={1} done={brand.brandName.trim()}/><div className="step-body"><label>Brand name<input value={brand.brandName} onChange={set('brandName')} maxLength={60} placeholder="e.g. Kape Kanto" required/></label></div></div>
-          <div className={`create-step ${brand.description.trim().length >= 10 ? 'done' : ''}`}><StepNumber n={2} done={brand.description.trim().length >= 10}/><div className="step-body"><BriefChat brandName={brand.brandName} description={brand.description} onDescription={value => setBrand(current => ({...current, description: value}))} onBrandName={value => setBrand(current => ({...current, brandName: value}))}/></div></div>
-          <div className={`create-step ${logo ? 'done' : ''}`}><StepNumber n={3} done={logo}/><div className="step-body"><span className="step-label">Logo <small>(required)</small></span>
-            <input ref={logoInput} type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" aria-label="Choose logo" onChange={event => {pickLogo(event.target.files[0]);event.target.value = '';}}/>
-            {logo ? <div className="logo-chosen"><img src={logoUrl || undefined} alt="Logo preview"/><div><strong>{logo.name}</strong><small>{Math.max(1, Math.round(logo.size / 1024))} KB</small></div><button className="text-button" type="button" onClick={() => logoInput.current.click()}>Change</button><button className="text-button" type="button" onClick={() => setLogo(null)}>Remove</button></div>
-              : <button type="button" className={`logo-drop ${dragging ? 'dragging' : ''}`} onClick={() => logoInput.current.click()} onDragOver={event => {event.preventDefault();setDragging(true);}} onDragLeave={() => setDragging(false)} onDrop={event => {event.preventDefault();setDragging(false);pickLogo(event.dataTransfer.files[0]);}}><Upload size={18}/><strong>Drop your logo here or click to upload</strong><small>PNG with a transparent background looks best · up to 3 MB</small></button>}
+          <div className={`create-step ${brand.brandName.trim() && logo ? 'done' : ''} ${['brand name', 'logo'].includes(nudge) && !(brand.brandName.trim() && logo) ? 'needs' : ''}`}><StepNumber n={1} done={brand.brandName.trim() && logo}/><div className="step-body">
+            <span className="step-label">Your brand</span>
+            <div className="brand-row">
+              <input id="brand-input" value={brand.brandName} onChange={set('brandName')} maxLength={60} placeholder="Brand name, e.g. Kape Kanto" aria-label="Brand name" required/>
+              <input ref={logoInput} type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" aria-label="Choose logo" onChange={event => {pickLogo(event.target.files[0]);event.target.value = '';}}/>
+              {logo ? <div id="logo-step" className="logo-mini chosen"><img src={logoUrl || undefined} alt="Your logo"/><button type="button" className="text-button" onClick={() => logoInput.current.click()}>Change</button><button type="button" className="logo-mini-remove" aria-label="Remove logo" onClick={() => setLogo(null)}><X size={12}/></button></div>
+                : <button id="logo-step" type="button" className={`logo-mini ${dragging ? 'dragging' : ''}`} title="PNG with a transparent background looks best · up to 3 MB" onClick={() => logoInput.current.click()} onDragOver={event => {event.preventDefault();setDragging(true);}} onDragLeave={() => setDragging(false)} onDrop={event => {event.preventDefault();setDragging(false);pickLogo(event.dataTransfer.files[0]);}}><Upload size={15}/>Add logo</button>}
+            </div>
           </div></div>
-          <div className={`create-step ${style.trim() ? 'done' : ''}`}><StepNumber n={4} done={style.trim()}/><div className="step-body"><label htmlFor="style-input" className="step-label">Style &amp; design <small>(optional: describe the look in your own words, or tap one)</small></label>
-            <input id="style-input" value={style} onChange={event => setStyle(event.target.value)} maxLength={200} placeholder="e.g. minimal and elegant, pastel colors, calm"/>
-            <div className="style-chips">{STYLE_IDEAS.map(([label, prompt]) => <button key={label} type="button" className={`style-chip ${style === prompt ? 'chosen' : ''}`} aria-pressed={style === prompt} onClick={() => setStyle(current => current === prompt ? '' : prompt)}>{label}</button>)}</div>
-          </div></div>
+          <div className={`create-step ${brand.description.trim().length >= 10 ? 'done' : ''} ${nudge === 'business description' && brand.description.trim().length < 10 ? 'needs' : ''}`}><StepNumber n={2} done={brand.description.trim().length >= 10}/><div className="step-body"><BriefChat brandName={brand.brandName} description={brand.description} onDescription={value => setBrand(current => ({...current, description: value}))} onBrandName={value => setBrand(current => ({...current, brandName: value}))}/></div></div>
+          <div className={`create-extras ${extrasOpen ? 'open' : ''}`}>
+            <button type="button" className="extras-toggle" aria-expanded={extrasOpen} aria-controls="create-extras" onClick={() => setExtrasOpen(value => !value)}>
+              <SlidersHorizontal size={15}/><span><strong>Optional extras</strong><small>{[style.trim() ? (STYLE_IDEAS.find(([, prompt]) => prompt === style)?.[0] || 'Custom style') : 'Auto style', photoMode === 'none' ? 'Motion graphics' : photos.length ? `${photos.length} photo${photos.length > 1 ? 's' : ''}` : 'AI photos', offer.trim() ? 'Offer added' : 'No offer'].join(' · ')}</small></span><ChevronDown size={16} className="extras-chevron"/>
+            </button>
+            {extrasOpen && <div id="create-extras" className="extras-body">
+              <div className="extra-group"><span className="extra-label">Look</span>
+                <div className="style-chips">{STYLE_IDEAS.map(([label, prompt]) => <button key={label} type="button" className={`style-chip ${style === prompt ? 'chosen' : ''}`} aria-pressed={style === prompt} onClick={() => setStyle(current => current === prompt ? '' : prompt)}>{label}</button>)}</div>
+                <input id="style-input" value={style} onChange={event => setStyle(event.target.value)} maxLength={200} placeholder="…or describe it: pastel colors, calm, elegant" aria-label="Describe the look"/>
+              </div>
+              <div className="extra-group"><span className="extra-label">Scenes</span>
+                <div className="segmented" role="radiogroup" aria-label="Video look">
+                  <button type="button" role="radio" aria-checked={photoMode === 'photos'} className={photoMode === 'photos' ? 'chosen' : ''} onClick={() => setPhotoMode('photos')}><ImagePlus size={14}/>Photo ad</button>
+                  <button type="button" role="radio" aria-checked={photoMode === 'none'} className={photoMode === 'none' ? 'chosen' : ''} onClick={() => setPhotoMode('none')}><Palette size={14}/>Motion graphics</button>
+                </div>
+                {photoMode === 'photos' && <div className="photo-strip">
+                  {photoUrls.map((url, index) => <div key={url} className="photo-thumb"><img src={url} alt={`Photo ${index + 1}`}/><button type="button" aria-label={`Remove photo ${index + 1}`} onClick={() => setPhotos(current => current.filter((_, i) => i !== index))}><X size={12}/></button></div>)}
+                  {photos.length < 4 && <button type="button" className="photo-add" onClick={() => photoInput.current.click()}><ImagePlus size={16}/><small>Your photos<br/>{photos.length}/4</small></button>}
+                  <small className="photo-note">{photos.length ? (photos.length < 4 ? 'AI fills the rest.' : 'Using your 4 photos.') : 'Skip it and AI makes product photos for you.'}</small>
+                  <input ref={photoInput} type="file" accept="image/png,image/jpeg,image/webp" multiple className="sr-only" aria-label="Choose photos" onChange={event => {addPhotos(event.target.files);event.target.value = '';}}/>
+                </div>}
+              </div>
+              <div className="extra-group"><label className="extra-label" htmlFor="offer-input">Offer</label>
+                <input id="offer-input" value={offer} onChange={event => setOffer(event.target.value)} maxLength={60} placeholder="Only if you have one, e.g. Buy 1 Take 1 on Fridays"/>
+              </div>
+            </div>}
+          </div>
           <div className="create-submit">
-            <button className="primary generate-button" disabled={busy === 'generate' || working || missing.length > 0 || !setup?.voice}><Sparkles size={15}/>{busy === 'generate' ? 'Planning your video…' : working ? 'Generating…' : 'Generate video'}</button>
-            <small className="report-caption">{missing.length ? `Still needed: ${missing.join(', ')}` : 'Ready! Takes about a minute.'}</small>
+            <button className="primary generate-button" disabled={busy === 'generate' || working || !setup?.voice} aria-describedby="generate-status"><Sparkles size={15}/>{busy === 'generate' ? 'Planning your video…' : working ? 'Generating…' : 'Generate video'}</button>
+            <small id="generate-status" className={`report-caption ${nudge && missing.length ? 'generate-nudge' : ''}`} role="status">{missing.length ? `${nudge ? 'Almost there! ' : ''}Still needed: ${missing.join(', ')}${nudge ? '. We highlighted it above.' : ''}` : 'Ready! Takes 1–2 minutes.'}</small>
           </div>
           {setup && !setup.voice && <p className="notice error"><AlertCircle size={14}/>Add ELEVENLABS_API_KEY to server/.env and restart the backend.</p>}
           {error && <p className="notice error" role="alert"><AlertCircle size={14}/>{error}</p>}
@@ -119,9 +162,10 @@ export default function Create({onOpen, onLibraryChanged, inspiration, onClearIn
       </section>
       <section className="panel create-preview"><div className="panel-title"><div><h2>Your video</h2><p>{active?.status === 'completed' ? `${active.durationSeconds || ''}s · 9:16 · ready to post` : working ? 'Being made…' : 'Appears here once it’s ready'}</p></div></div>
         <div className="preview-frame">{active?.status === 'completed' ? <video key={active.id} src={active.fileUrl} controls autoPlay playsInline/> : <div className={`video-placeholder ${working ? 'working' : ''}`}><Sparkles size={34}/><strong>{working ? 'Creating your video…' : 'Your video will appear here'}</strong><span>{working ? active.stage : 'Fill in the steps, then press Generate.'}</span></div>}</div>
-        {(working || busy === 'generate') && <ol className="make-steps">{['Planning script & design', 'Recording voiceover', 'Animating'].map((label, index) => {const current = Math.max(0, ['queued', 'voicing', 'rendering'].indexOf(active?.status));return <li key={label} className={current > index ? 'done' : current === index ? 'now' : ''}>{current > index ? <Check size={12} strokeWidth={3}/> : <i/>}{label}{active?.status === 'rendering' && index === 2 ? ` · ${active.progress}%` : ''}</li>;})}</ol>}
+        {(working || busy === 'generate') && <ol className="make-steps">{['Planning script & design', 'Photos & voiceover', 'Animating'].map((label, index) => {const current = Math.max(0, ['queued', 'voicing', 'rendering'].indexOf(active?.status));return <li key={label} className={current > index ? 'done' : current === index ? 'now' : ''}>{current > index ? <Check size={12} strokeWidth={3}/> : <i/>}{label}{active?.status === 'rendering' && index === 2 ? ` · ${active.progress}%` : ''}</li>;})}</ol>}
         {working && <div className="create-status"><div className="prediction-progress"><i style={{width: `${active.status === 'rendering' ? 20 + active.progress * .8 : active.status === 'voicing' ? 12 : 4}%`}}/></div></div>}
-        {!active && busy !== 'generate' && <ul className="get-list"><li><Film size={14}/>15–30s vertical MP4 (9:16), ready for Reels and TikTok</li><li><Mic size={14}/>Natural AI voiceover that matches your business</li><li><Palette size={14}/>Motion graphics in your colors, with your logo</li></ul>}
+        {!active && busy !== 'generate' && <ul className="get-list"><li><Film size={14}/>15–30s vertical MP4 (9:16), ready for Reels and TikTok</li><li><Mic size={14}/>Natural AI voiceover that matches your business</li><li><ImagePlus size={14}/>Real photo scenes in an ad format picked for your business</li><li><Music2 size={14}/>Background music and sound effects on every cut</li></ul>}
+        {active?.visualNote && <p className="notice"><AlertCircle size={14}/>{active.visualNote}</p>}
         {active?.status === 'failed' && <div className="create-status"><p className="notice error"><AlertCircle size={14}/>{active.error?.message}</p></div>}
         {active?.status === 'completed' && <div className="create-status"><div className="manual-actions"><a className="primary" href={`${active.fileUrl}?download=1`}><Download size={14}/>Download MP4</a><button className="secondary-button" onClick={() => addToLibrary(active)}>{active.libraryVideoId ? 'Open in PULSE' : 'Score it in PULSE'}<ArrowUpRight size={13}/></button></div></div>}
         {active?.aiPlan && <div className="ai-plan"><span className="eyebrow">WHAT THE AI CHOSE</span>
@@ -129,6 +173,8 @@ export default function Create({onOpen, onLibraryChanged, inspiration, onClearIn
             <div><small>Voice</small><span>{active.aiPlan.voiceName} · {active.aiPlan.voiceCharacter}</span></div>
             <div><small>Colors</small><span>{['primary', 'accent', 'background'].map(key => <span key={key} className="swatch" style={{background: active.aiPlan.colors[key]}} title={active.aiPlan.colors[key]}/>)}</span></div>
             {active.aiPlan.motion?.design && <div><small>Design</small><span>{active.aiPlan.motion.design.font} font · {active.aiPlan.motion.design.background} · {active.aiPlan.motion.design.energy}{active.aiPlan.motion.design.textCase === 'upper' ? ' · caps' : ''}</span></div>}
+            {active.aiPlan.motion?.format && <div><small>Ad format</small><span>{FORMAT_NAMES[active.aiPlan.motion.format] || active.aiPlan.motion.format}</span></div>}
+            {active.aiPlan.motion?.music && <div><small>Music</small><span>{active.aiPlan.motion.music}{active.visualSources?.length ? ` · ${active.visualSources.filter(item => item === 'upload').length ? `${active.visualSources.filter(item => item === 'upload').length} your photos, ` : ''}${active.visualSources.filter(item => item !== 'upload').length} AI photos` : ''}</span></div>}
             <div><small>Tagline</small><span>{active.aiPlan.tagline}</span></div>
           </div>
           <p className="ai-plan-script">“{[active.script.hook, ...active.script.lines, active.script.cta].join(' ')}”</p>
